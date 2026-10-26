@@ -17,6 +17,7 @@ class AccompanyingVisitor extends Model
         'sex',
         'id_type',
         'id_number',
+        'id_photo_path',
         'relationship_to_pdl',
     ];
 

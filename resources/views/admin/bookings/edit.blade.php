@@ -3,6 +3,15 @@
 @section('title', 'Edit Visit | SmartDalaw')
 
 @section('content')
+    @php
+        $dormitoryOptions = $facilities->mapWithKeys(fn ($facility) => [
+            $facility->id => $facility->dormitories->map(fn ($dormitory) => [
+                'id' => $dormitory->id,
+                'name' => $dormitory->name,
+            ])->values(),
+        ]);
+    @endphp
+
     <div class="max-w-3xl">
         <a href="{{ route('admin.dashboard') }}" class="text-sm font-medium text-[#0A2472] hover:underline">&larr; Booking requests</a>
         <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -16,7 +25,7 @@
 
         @include('bookings.partials.status-history', ['booking' => $booking])
 
-        <form action="{{ route('admin.bookings.update', $booking) }}" method="POST" class="mt-7 space-y-5 border-y border-slate-200 bg-white py-6">
+        <form action="{{ route('admin.bookings.update', $booking) }}" method="POST" enctype="multipart/form-data" class="mt-7 space-y-5 border-y border-slate-200 bg-white py-6">
             @csrf
             @method('PUT')
 
@@ -26,6 +35,13 @@
                     @foreach($facilities as $facility)
                         <option value="{{ $facility->id }}" @selected(old('facility_id', $booking->facility_id) == $facility->id)>{{ $facility->name }}</option>
                     @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label for="dormitory_id" class="mb-2 block text-sm font-semibold text-slate-800">Dormitory</label>
+                <select id="dormitory_id" name="dormitory_id" required class="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    <option value="">Select a facility first</option>
                 </select>
             </div>
 
@@ -112,6 +128,30 @@
                 <input type="text" id="relationship_to_pdl" name="relationship_to_pdl" value="{{ old('relationship_to_pdl', $booking->relationship_to_pdl) }}" required maxlength="100" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100">
             </div>
 
+            <div class="rounded-md border border-slate-200 bg-slate-50 p-4">
+                <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-800">Primary visitor ID photo</h3>
+                        <p class="mt-1 text-xs text-slate-500">The existing photo stays on file unless you choose a replacement.</p>
+                    </div>
+                    @if($booking->visitor_id_photo_path)
+                        <a href="{{ route('admin.bookings.id-photo', ['booking' => $booking, 'visitor' => 'primary']) }}" target="_blank" rel="noopener" class="text-xs font-semibold text-[#0A2472] hover:underline">Open full size &rarr;</a>
+                    @endif
+                </div>
+
+                @if($booking->visitor_id_photo_path)
+                    <img src="{{ route('admin.bookings.id-photo', ['booking' => $booking, 'visitor' => 'primary']) }}" alt="Current valid ID photo for {{ $booking->visitor_full_name }}" class="mt-3 h-56 w-full max-w-md rounded-md border border-slate-200 bg-white object-contain">
+                @else
+                    <p class="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">No ID photo is on file for this visitor.</p>
+                @endif
+
+                <div class="mt-3">
+                    <label for="visitor_id_photo" class="mb-1.5 block text-xs font-semibold text-slate-700">Replace ID photo <span class="font-normal text-slate-500">(optional)</span></label>
+                    <input type="file" id="visitor_id_photo" name="visitor_id_photo" accept="image/jpeg,image/png,image/webp" class="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#0A2472] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white">
+                    <p class="mt-1 text-xs text-slate-500">JPG, PNG, or WEBP up to 2 MB. Leave empty to keep the current photo.</p>
+                </div>
+            </div>
+
             <div class="space-y-4 border-t border-slate-200 pt-5">
                 <div class="flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-slate-800">Accompanying Visitors <span class="font-normal text-slate-500">(optional)</span></h3>
@@ -124,6 +164,7 @@
                 <div id="accompanying-visitors-container" class="space-y-4">
                     @foreach($booking->accompanyingVisitors as $index => $visitor)
                         <div class="rounded-md border border-slate-200 bg-slate-50 p-4" data-accompanying-index="{{ $index }}">
+                            <input type="hidden" name="accompanying_visitors[{{ $index }}][id]" value="{{ $visitor->id }}">
                             <div class="mb-3 flex items-center justify-between">
                                 <h4 class="text-sm font-semibold text-slate-800">Visitor {{ $index + 1 }}</h4>
                                 <button type="button" class="remove-accompanying-visitor text-sm text-red-600 hover:text-red-800" data-index="{{ $index }}">Remove</button>
@@ -157,6 +198,22 @@
                                     <label class="mb-1.5 block text-xs font-semibold text-slate-700">Relationship to PDL</label>
                                     <input type="text" name="accompanying_visitors[{{ $index }}][relationship_to_pdl]" value="{{ old("accompanying_visitors.{$index}.relationship_to_pdl", $visitor->relationship_to_pdl) }}" required maxlength="100" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100">
                                 </div>
+                                <div class="sm:col-span-2 rounded-md border border-slate-200 bg-white p-3">
+                                    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                                        <p class="text-xs font-semibold text-slate-700">ID photo</p>
+                                        @if($visitor->id_photo_path)
+                                            <a href="{{ route('admin.bookings.id-photo', ['booking' => $booking, 'visitor' => $visitor->id]) }}" target="_blank" rel="noopener" class="text-xs font-semibold text-[#0A2472] hover:underline">Open full size &rarr;</a>
+                                        @endif
+                                    </div>
+                                    @if($visitor->id_photo_path)
+                                        <img src="{{ route('admin.bookings.id-photo', ['booking' => $booking, 'visitor' => $visitor->id]) }}" alt="Current valid ID photo for {{ $visitor->full_name }}" class="mt-2 h-40 w-full max-w-xs rounded-md border border-slate-200 bg-white object-contain">
+                                    @else
+                                        <p class="mt-2 text-xs text-amber-800">No ID photo is on file for this visitor.</p>
+                                    @endif
+                                    <label class="mb-1.5 mt-3 block text-xs font-semibold text-slate-700">Replace ID photo <span class="font-normal text-slate-500">(optional)</span></label>
+                                    <input type="file" name="accompanying_visitors[{{ $index }}][id_photo]" accept="image/jpeg,image/png,image/webp" class="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#0A2472] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white">
+                                    <p class="mt-1 text-xs text-slate-500">JPG, PNG, or WEBP up to 2 MB. Leave empty to keep the current photo.</p>
+                                </div>
                             </div>
                         </div>
                     @endforeach
@@ -171,6 +228,37 @@
     </div>
 
     <script>
+        const DORMITORIES_BY_FACILITY = @json($dormitoryOptions);
+        const PREVIOUS_DORMITORY = @json(old('dormitory_id', $booking->dormitory_id));
+
+        const facilitySelect = document.getElementById('facility_id');
+        const dormitorySelect = document.getElementById('dormitory_id');
+
+        function setDormitoryOptions(preferred = '') {
+            const dormitories = DORMITORIES_BY_FACILITY[facilitySelect.value] || [];
+            dormitorySelect.innerHTML = '';
+
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = facilitySelect.value ? 'Select a dormitory' : 'Select a facility first';
+            dormitorySelect.appendChild(placeholderOption);
+
+            dormitories.forEach((dormitory) => {
+                const option = document.createElement('option');
+                option.value = dormitory.id;
+                option.textContent = dormitory.name;
+                dormitorySelect.appendChild(option);
+            });
+
+            const preferredValue = String(preferred ?? '');
+            dormitorySelect.value = dormitories.some((dormitory) => String(dormitory.id) === preferredValue)
+                ? preferredValue
+                : '';
+        }
+
+        facilitySelect.addEventListener('change', () => setDormitoryOptions());
+        setDormitoryOptions(PREVIOUS_DORMITORY || '');
+
         const accompanyingVisitorsContainer = document.getElementById('accompanying-visitors-container');
         const addAccompanyingVisitorBtn = document.getElementById('add-accompanying-visitor');
         let accompanyingVisitorCount = {{ $booking->accompanyingVisitors->count() }};
@@ -212,6 +300,10 @@
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-xs font-semibold text-slate-700">Relationship to PDL</label>
                         <input type="text" name="accompanying_visitors[${index}][relationship_to_pdl]" required maxlength="100" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-xs font-semibold text-slate-700">ID photo <span class="font-normal text-slate-500">(optional)</span></label>
+                        <input type="file" name="accompanying_visitors[${index}][id_photo]" accept="image/jpeg,image/png,image/webp" class="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#0A2472] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white">
                     </div>
                 </div>
             `;

@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class StoreWalkInBookingRequest extends FormRequest
@@ -25,6 +26,12 @@ class StoreWalkInBookingRequest extends FormRequest
     {
         return [
             'facility_id' => ['required', 'integer', 'exists:facilities,id'],
+            'dormitory_id' => [
+                'required',
+                'integer',
+                Rule::exists('dormitories', 'id')
+                    ->where(fn ($query) => $query->where('facility_id', $this->input('facility_id'))),
+            ],
             'pdl_name' => ['required', 'string', 'max:255'],
             'visitor_full_name' => ['required', 'string', 'max:255'],
             'visitor_email' => ['nullable', 'email', 'max:255'],

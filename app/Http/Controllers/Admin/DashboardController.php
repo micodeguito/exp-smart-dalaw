@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
-use App\Models\Facility;
+use App\Models\Dormitory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use App\Mail\BookingStatusChanged;
 
 class DashboardController extends Controller
 {
@@ -34,7 +37,7 @@ class DashboardController extends Controller
                 ->count(),
         ];
 
-        $query = Booking::visibleToUser($request->user())->with(['facility']);
+        $query = Booking::visibleToUser($request->user())->with(['facility', 'dormitory']);
 
         if ($request->has('status') && $request->status !== '') {
             $query->where('status', $request->status);
@@ -52,10 +55,10 @@ class DashboardController extends Controller
     public function approve(Request $request, Booking $booking): RedirectResponse
     {
         $validated = $request->validate([
-            'reason' => ['required', 'string', 'max:500'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return $this->changeStatus($booking, 'Approved', $validated['reason']);
+        return $this->changeStatus($booking, 'Approved', $validated['reason'] ?? null);
     }
 
     public function reject(Request $request, Booking $booking): RedirectResponse
@@ -71,15 +74,23 @@ class DashboardController extends Controller
     {
         $validated = $request->validate([
             'status' => ['required', Rule::in(['Pending', 'Approved', 'Rejected'])],
-            'reason' => ['required', 'string', 'max:500'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return $this->changeStatus($booking, $validated['status'], $validated['reason']);
+        if (in_array($validated['status'], ['Pending', 'Rejected'], true) && blank($validated['reason'] ?? null)) {
+            throw ValidationException::withMessages([
+                'reason' => 'A reason is required when changing the status to Pending or Rejected.',
+            ]);
+        }
+
+        return $this->changeStatus($booking, $validated['status'], $validated['reason'] ?? null);
     }
 
-    private function changeStatus(Booking $booking, string $status, string $reason): RedirectResponse
+    private function changeStatus(Booking $booking, string $status, ?string $reason): RedirectResponse
     {
-        DB::transaction(function () use ($booking, $status, $reason): void {
+        $previousStatus = $booking->status;
+
+        DB::transaction(function () use ($booking, $status, $reason, &$previousStatus): void {
             $lockedBooking = Booking::visibleToUser(auth()->user())
                 ->lockForUpdate()
                 ->findOrFail($booking->id);
@@ -91,20 +102,25 @@ class DashboardController extends Controller
             }
 
             if ($lockedBooking->status === 'Rejected' && $status !== 'Rejected') {
-                $facility = Facility::visibleToUser(auth()->user())
-                    ->lockForUpdate()
-                    ->findOrFail($lockedBooking->facility_id);
-                $existingBookings = Booking::query()
-                    ->where('facility_id', $facility->id)
-                    ->whereDate('visit_date', $lockedBooking->visit_date)
-                    ->where('time_slot', $lockedBooking->time_slot)
-                    ->where('status', '!=', 'Rejected')
-                    ->whereKeyNot($lockedBooking->id)
-                    ->count();
-
-                if ($existingBookings >= $facility->max_visitors_per_hour) {
+                if (! $lockedBooking->dormitory_id) {
                     throw ValidationException::withMessages([
-                        'status' => 'This visit cannot be reactivated because its hourly slot is full.',
+                        'status' => 'This visit cannot be reactivated because it has no dormitory assignment.',
+                    ]);
+                }
+
+                $dormitory = Dormitory::query()
+                    ->lockForUpdate()
+                    ->findOrFail($lockedBooking->dormitory_id);
+                $usage = $dormitory->slotUsage(
+                    $lockedBooking->visit_date->toDateString(),
+                    $lockedBooking->time_slot,
+                    $lockedBooking->id,
+                );
+                $channel = $lockedBooking->booking_channel ?? Booking::CHANNEL_ONLINE;
+
+                if (! $dormitory->acceptsChannel($channel, $usage)) {
+                    throw ValidationException::withMessages([
+                        'status' => $dormitory->capacityErrorMessage($channel, $usage),
                     ]);
                 }
             }
@@ -118,9 +134,29 @@ class DashboardController extends Controller
                 'user_id' => auth()->id(),
                 'from_status' => $previousStatus,
                 'to_status' => $status,
-                'reason' => $reason,
+                'reason' => filled($reason) ? $reason : "Status changed to {$status}.",
             ]);
         });
+
+        // Send decision notifications after the transaction commits. Pending
+        // means the request still needs review, so it does not trigger a
+        // decision email. Mail failures must not roll back the status change.
+        if ($booking->visitor_email && in_array($status, ['Approved', 'Rejected'], true)) {
+            $booking->refresh();
+            try {
+                Mail::to($booking->visitor_email)->send(new BookingStatusChanged(
+                    $booking,
+                    $previousStatus,
+                    $status === 'Rejected' ? $reason : null,
+                ));
+            } catch (\Throwable $e) {
+                Log::error('Booking status-change email failed', [
+                    'reference_code' => $booking->reference_code,
+                    'mailer' => config('mail.default'),
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         return redirect()->route('admin.dashboard')->with('success', "Booking status changed to {$status}.");
     }

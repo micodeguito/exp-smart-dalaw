@@ -19,6 +19,7 @@ function createAdminManagementBooking(Facility $facility, array $attributes = []
     return Booking::create(array_merge([
         'reference_code' => 'BJMP-'.Str::upper(Str::random(8)),
         'facility_id' => $facility->id,
+        'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
         'pdl_name' => 'Juan Dela Cruz',
         'visitor_full_name' => 'Sample Visitor',
         'visitor_sex' => 'Male',
@@ -34,12 +35,20 @@ function createAdminManagementBooking(Facility $facility, array $attributes = []
     ], $attributes));
 }
 
-function createAdminManagementFacility(int $maxVisitorsPerHour = 5): Facility
+function createAdminManagementFacility(int $maxOnlineBookings = 5, int $maxCombinedBookings = 15): Facility
 {
-    return Facility::create([
+    $facility = Facility::create([
         'name' => 'Test City Jail',
-        'max_visitors_per_hour' => $maxVisitorsPerHour,
+        'max_visitors_per_hour' => $maxCombinedBookings,
     ]);
+
+    $facility->dormitories()->create([
+        'name' => 'Male Dormitory',
+        'max_online_bookings_per_hour' => $maxOnlineBookings,
+        'max_bookings_per_hour' => $maxCombinedBookings,
+    ]);
+
+    return $facility;
 }
 
 test('admin dashboard summarizes booking activity', function () {
@@ -92,6 +101,7 @@ test('admins can create edit and delete admin accounts', function () {
             'password_confirmation' => 'secure-password',
             'role' => 'facility_admin',
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
         ])
         ->assertRedirect(route('admin.users.index'));
 
@@ -174,21 +184,141 @@ test('admins must explain status changes and each reason is kept in the booking 
         ->assertSeeText('Facility inspection requires a reschedule.');
 });
 
-test('admin status cannot change without a reason', function () {
+test('approved status changes do not require a reason', function () {
     $admin = User::factory()->create();
     $facility = createAdminManagementFacility();
-    $booking = createAdminManagementBooking($facility);
+
+    $pendingBooking = createAdminManagementBooking($facility, ['status' => 'Pending']);
 
     $this->actingAs($admin)
-        ->post(route('admin.bookings.status.update', $booking), ['status' => 'Approved'])
+        ->post(route('admin.bookings.status.update', $pendingBooking), ['status' => 'Approved'])
+        ->assertRedirect(route('admin.dashboard'));
+
+    expect($pendingBooking->fresh()->status)->toBe('Approved')
+        ->and($pendingBooking->fresh()->admin_remarks)->toBeNull();
+
+    $this->assertDatabaseHas('booking_status_histories', [
+        'booking_id' => $pendingBooking->id,
+        'from_status' => 'Pending',
+        'to_status' => 'Approved',
+        'reason' => 'Status changed to Approved.',
+    ]);
+
+    $rejectedBooking = createAdminManagementBooking($facility, [
+        'status' => 'Rejected',
+        'admin_remarks' => 'Previous rejection reason.',
+    ]);
+    $rejectedBooking->statusHistory()->create([
+        'user_id' => $admin->id,
+        'from_status' => 'Pending',
+        'to_status' => 'Rejected',
+        'reason' => 'Previous rejection reason.',
+    ]);
+
+    $this->post(route('admin.bookings.status.update', $rejectedBooking), ['status' => 'Approved'])
+        ->assertRedirect(route('admin.dashboard'));
+
+    expect($rejectedBooking->fresh()->status)->toBe('Approved')
+        ->and($rejectedBooking->fresh()->admin_remarks)->toBeNull();
+
+    $this->assertDatabaseHas('booking_status_histories', [
+        'booking_id' => $rejectedBooking->id,
+        'from_status' => 'Rejected',
+        'to_status' => 'Approved',
+        'reason' => 'Status changed to Approved.',
+    ]);
+    $this->assertDatabaseHas('booking_status_histories', [
+        'booking_id' => $rejectedBooking->id,
+        'from_status' => 'Pending',
+        'to_status' => 'Rejected',
+        'reason' => 'Previous rejection reason.',
+    ]);
+});
+
+test('pending and rejected status changes require a reason', function () {
+    $admin = User::factory()->create();
+    $facility = createAdminManagementFacility();
+
+    $approvedBooking = createAdminManagementBooking($facility, ['status' => 'Approved']);
+    $pendingBooking = createAdminManagementBooking($facility, ['status' => 'Pending']);
+
+    $this->actingAs($admin)
+        ->post(route('admin.bookings.status.update', $approvedBooking), ['status' => 'Pending'])
         ->assertSessionHasErrors('reason');
 
-    expect($booking->fresh()->status)->toBe('Pending');
+    $this->post(route('admin.bookings.status.update', $approvedBooking), ['status' => 'Rejected'])
+        ->assertSessionHasErrors('reason');
+
+    $this->post(route('admin.bookings.status.update', $pendingBooking), ['status' => 'Rejected'])
+        ->assertSessionHasErrors('reason');
+
+    $this->post(route('admin.bookings.status.update', $approvedBooking), [
+        'status' => 'Rejected',
+        'reason' => '   ',
+    ])->assertSessionHasErrors('reason');
+
+    expect($approvedBooking->fresh()->status)->toBe('Approved')
+        ->and($pendingBooking->fresh()->status)->toBe('Pending')
+        ->and($approvedBooking->statusHistory()->count())->toBe(0)
+        ->and($pendingBooking->statusHistory()->count())->toBe(0);
+});
+
+test('pending and rejected status changes succeed when a reason is provided', function () {
+    $admin = User::factory()->create();
+    $facility = createAdminManagementFacility();
+    $booking = createAdminManagementBooking($facility, ['status' => 'Approved']);
+
+    $this->actingAs($admin)
+        ->post(route('admin.bookings.status.update', $booking), [
+            'status' => 'Pending',
+            'reason' => 'Returning the request for corrected visitor details.',
+        ])
+        ->assertRedirect(route('admin.dashboard'));
+
+    $this->post(route('admin.bookings.status.update', $booking), [
+        'status' => 'Rejected',
+        'reason' => 'The submitted ID could not be verified.',
+    ])->assertRedirect(route('admin.dashboard'));
+
+    expect($booking->fresh()->status)->toBe('Rejected')
+        ->and($booking->fresh()->admin_remarks)->toBe('The submitted ID could not be verified.');
+
+    $this->assertDatabaseHas('booking_status_histories', [
+        'booking_id' => $booking->id,
+        'from_status' => 'Approved',
+        'to_status' => 'Pending',
+        'reason' => 'Returning the request for corrected visitor details.',
+    ]);
+    $this->assertDatabaseHas('booking_status_histories', [
+        'booking_id' => $booking->id,
+        'from_status' => 'Pending',
+        'to_status' => 'Rejected',
+        'reason' => 'The submitted ID could not be verified.',
+    ]);
+});
+
+test('status reason rules are enforced without frontend validation', function () {
+    $admin = User::factory()->create();
+    $facility = createAdminManagementFacility();
+    $booking = createAdminManagementBooking($facility, ['status' => 'Pending']);
+
+    $this->actingAs($admin)
+        ->postJson(route('admin.bookings.status.update', $booking), ['status' => 'Rejected'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('reason');
+
+    expect($booking->fresh()->status)->toBe('Pending')
+        ->and($booking->statusHistory()->count())->toBe(0);
+
+    $this->postJson(route('admin.bookings.status.update', $booking), ['status' => 'Approved'])
+        ->assertRedirect(route('admin.dashboard'));
+
+    expect($booking->fresh()->status)->toBe('Approved');
 });
 
 test('rejected bookings cannot be reactivated into a full hourly slot', function () {
     $admin = User::factory()->create();
-    $facility = createAdminManagementFacility(1);
+    $facility = createAdminManagementFacility(1, 1);
     $rejectedBooking = createAdminManagementBooking($facility, [
         'status' => 'Rejected',
         'visit_date' => today()->addDays(5)->toDateString(),
@@ -208,22 +338,26 @@ test('rejected bookings cannot be reactivated into a full hourly slot', function
     expect($rejectedBooking->fresh()->status)->toBe('Rejected');
 });
 
-test('admins can set the visitors allowed per hourly slot', function () {
+test('admins can set the online and combined limits per dormitory', function () {
     $admin = User::factory()->create();
     $facility = createAdminManagementFacility();
+    $dormitory = $facility->dormitories()->firstOrFail();
 
     $this->actingAs($admin)
         ->get(route('admin.facilities.settings'))
         ->assertOk()
-        ->assertSeeText('Visitors per hourly slot');
+        ->assertSeeText('Online bookings per hour')
+        ->assertSeeText('Total bookings per hour');
 
-    $this->put(route('admin.facilities.capacity.update', $facility), [
-        'max_visitors_per_hour' => 12,
+    $this->put(route('admin.facilities.dormitories.update', [$facility, $dormitory]), [
+        'max_online_bookings_per_hour' => 7,
+        'max_bookings_per_hour' => 15,
     ])->assertRedirect(route('admin.facilities.settings'));
 
-    $this->assertDatabaseHas('facilities', [
-        'id' => $facility->id,
-        'max_visitors_per_hour' => 12,
+    $this->assertDatabaseHas('dormitories', [
+        'id' => $dormitory->id,
+        'max_online_bookings_per_hour' => 7,
+        'max_bookings_per_hour' => 15,
     ]);
 });
 
@@ -260,6 +394,7 @@ test('admins can edit a booking without changing its approval status', function 
     $this->actingAs($admin)
         ->put(route('admin.bookings.update', $booking), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Updated Visitor',
             'visitor_sex' => 'Male',
@@ -284,7 +419,7 @@ test('admins can edit a booking without changing its approval status', function 
 
 test('booking edits cannot exceed facility slot capacity', function () {
     $admin = User::factory()->create();
-    $facility = createAdminManagementFacility(1);
+    $facility = createAdminManagementFacility(1, 1);
     $bookingToEdit = createAdminManagementBooking($facility, [
         'visit_date' => today()->addDays(5)->toDateString(),
     ]);
@@ -296,6 +431,7 @@ test('booking edits cannot exceed facility slot capacity', function () {
     $this->actingAs($admin)
         ->put(route('admin.bookings.update', $bookingToEdit), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Sample Visitor',
             'visitor_sex' => 'Male',
@@ -364,6 +500,7 @@ test('admin can create a walk-in booking', function () {
     $this->actingAs($admin)
         ->post(route('admin.bookings.store'), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Walk-in Visitor',
             'visitor_sex' => 'Male',
@@ -405,6 +542,7 @@ test('walk-in bookings can be for today', function () {
     $this->actingAs($admin)
         ->post(route('admin.bookings.store'), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Today Walk-in',
             'visitor_sex' => 'Male',
@@ -426,7 +564,7 @@ test('walk-in bookings can be for today', function () {
 
 test('walk-in bookings cannot exceed facility slot capacity', function () {
     $admin = User::factory()->create();
-    $facility = createAdminManagementFacility(1);
+    $facility = createAdminManagementFacility(1, 1);
     createAdminManagementBooking($facility, [
         'visit_date' => today()->addDay()->toDateString(),
         'time_slot' => '8:00 AM - 9:00 AM',
@@ -436,6 +574,7 @@ test('walk-in bookings cannot exceed facility slot capacity', function () {
     $this->actingAs($admin)
         ->post(route('admin.bookings.store'), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Walk-in Visitor',
             'visitor_sex' => 'Male',
@@ -470,6 +609,7 @@ test('admin can add accompanying visitors when editing a booking', function () {
     $this->actingAs($admin)
         ->put(route('admin.bookings.update', $booking), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Sample Visitor',
             'visitor_sex' => 'Male',
@@ -516,6 +656,7 @@ test('admin can remove accompanying visitors when editing a booking', function (
     $this->actingAs($admin)
         ->put(route('admin.bookings.update', $booking), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Sample Visitor',
             'visitor_sex' => 'Male',
@@ -543,6 +684,7 @@ test('walk-in bookings can have accompanying visitors', function () {
     $this->actingAs($admin)
         ->post(route('admin.bookings.store'), [
             'facility_id' => $facility->id,
+            'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
             'pdl_name' => 'Juan Dela Cruz',
             'visitor_full_name' => 'Walk-in Visitor',
             'visitor_sex' => 'Male',

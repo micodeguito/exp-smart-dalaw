@@ -101,6 +101,7 @@
                         <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Visitor</th>
                         <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">PDL</th>
                         <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Facility</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Dormitory</th>
                         <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Visit</th>
                         <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Status</th>
                         <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Actions</th>
@@ -109,7 +110,9 @@
                 <tbody class="divide-y divide-slate-100">
                     @forelse($bookings as $booking)
                         <tr>
-                            <td class="whitespace-nowrap px-4 py-4 font-mono text-xs font-semibold text-[#0A2472]">{{ $booking->reference_code }}</td>
+                            <td class="whitespace-nowrap px-4 py-4 font-mono text-xs font-semibold text-[#0A2472]">
+                                <a href="{{ route('admin.bookings.show', $booking) }}" class="hover:underline">{{ $booking->reference_code }}</a>
+                            </td>
                             <td class="whitespace-nowrap px-4 py-4">
                                 <p class="text-sm font-medium text-slate-900">{{ $booking->visitor_full_name }}</p>
                                 <p class="mt-1 text-xs text-slate-500">{{ $booking->visitor_contact }}</p>
@@ -118,6 +121,7 @@
                                 <p class="text-sm text-slate-800">{{ $booking->pdl_name }}</p>
                             </td>
                             <td class="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{{ $booking->facility->name }}</td>
+                            <td class="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{{ $booking->dormitory?->name ?? 'Not assigned' }}</td>
                             <td class="whitespace-nowrap px-4 py-4">
                                 <p class="text-sm text-slate-800">{{ $booking->visit_date->format('M d, Y') }}</p>
                                 <p class="mt-1 text-xs text-slate-500">{{ $booking->time_slot }}</p>
@@ -132,12 +136,13 @@
                                 @endif
                             </td>
                             <td class="whitespace-nowrap px-4 py-4 text-right text-xs font-semibold">
-                                <a href="{{ route('admin.bookings.edit', $booking) }}" class="text-[#0A2472] hover:underline">Edit</a>
+                                <a href="{{ route('admin.bookings.show', $booking) }}" class="text-[#0A2472] hover:underline">View</a>
+                                <a href="{{ route('admin.bookings.edit', $booking) }}" class="ml-3 text-[#0A2472] hover:underline">Edit</a>
                                 <button type="button" data-status-booking="{{ $booking->id }}" data-current-status="{{ $booking->status }}" class="ml-3 text-slate-700 hover:text-[#0A2472] hover:underline">Change status</button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm text-slate-500">No booking requests found.</td></tr>
+                        <tr><td colspan="8" class="px-4 py-10 text-center text-sm text-slate-500">No booking requests found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -151,7 +156,7 @@
     <div id="statusModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="status-title">
         <div class="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
             <h2 id="status-title" class="text-lg font-semibold text-slate-900">Change booking status</h2>
-            <p class="mt-1 text-sm text-slate-600">A reason is required and will be saved in the booking history.</p>
+            <p class="mt-1 text-sm text-slate-600">A reason is required for Pending or Rejected changes and is saved in the booking history.</p>
             <form action="" method="POST" id="statusForm" class="mt-5">
                 @csrf
                 <p class="mb-3 text-xs text-slate-500">Current status: <span id="current-booking-status" class="font-semibold text-slate-800"></span></p>
@@ -164,9 +169,10 @@
                         <option value="Rejected">Rejected</option>
                     </select>
                 </div>
-                <div class="mt-4">
+                <div id="status-reason-field" class="mt-4 hidden">
                     <label for="status_reason" class="mb-2 block text-sm font-semibold text-slate-800">Reason for change</label>
-                    <textarea id="status_reason" name="reason" required maxlength="500" rows="4" class="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100" placeholder="Explain why this status is changing"></textarea>
+                    <textarea id="status_reason" name="reason" maxlength="500" rows="4" class="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100" placeholder="Explain why this status is changing"></textarea>
+                    <p class="mt-1 text-xs text-slate-500">Required when setting the status to Pending or Rejected.</p>
                 </div>
                 <div class="mt-4 flex justify-end gap-2">
                     <button type="button" onclick="closeStatusModal()" class="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -177,16 +183,34 @@
     </div>
 
     <script>
+        const statusForm = document.getElementById('statusForm');
+        const statusSelect = document.getElementById('status');
+        const statusReasonField = document.getElementById('status-reason-field');
+        const statusReasonInput = document.getElementById('status_reason');
+
+        function statusRequiresReason() {
+            return ['Pending', 'Rejected'].includes(statusSelect.value);
+        }
+
+        function syncStatusReasonField() {
+            const requiresReason = statusRequiresReason();
+            statusReasonField.classList.toggle('hidden', !requiresReason);
+            statusReasonInput.required = requiresReason;
+
+            if (!requiresReason) {
+                statusReasonInput.value = '';
+            }
+        }
+
         function openStatusModal(bookingId, currentStatus) {
-            const form = document.getElementById('statusForm');
-            form.action = '{{ route('admin.bookings.status.update', ':id') }}'.replace(':id', bookingId);
+            statusForm.action = '{{ route('admin.bookings.status.update', ':id') }}'.replace(':id', bookingId);
             document.getElementById('current-booking-status').textContent = currentStatus;
-            const statusSelect = document.getElementById('status');
             [...statusSelect.options].forEach((option) => {
                 option.disabled = option.value === currentStatus;
             });
             statusSelect.value = '';
-            document.getElementById('status_reason').value = '';
+            statusReasonInput.value = '';
+            syncStatusReasonField();
             document.getElementById('statusModal').classList.remove('hidden');
             document.getElementById('statusModal').classList.add('flex');
             statusSelect.focus();
@@ -195,8 +219,12 @@
         function closeStatusModal() {
             document.getElementById('statusModal').classList.add('hidden');
             document.getElementById('statusModal').classList.remove('flex');
-            document.getElementById('status_reason').value = '';
+            statusReasonInput.value = '';
+            statusReasonInput.required = false;
+            statusReasonField.classList.add('hidden');
         }
+
+        statusSelect.addEventListener('change', syncStatusReasonField);
 
         document.querySelectorAll('[data-status-booking]').forEach((button) => {
             button.addEventListener('click', () => {

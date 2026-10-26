@@ -35,6 +35,16 @@
         6 => array_merge($morningSlots, $afternoonSlots), // Saturday
     ];
     $minVisitDate = now()->addDay()->format('Y-m-d'); // today and past dates are never allowed
+
+    $dormitoryOptions = $facilities->mapWithKeys(fn ($facility) => [
+        $facility->id => $facility->dormitories->map(fn ($dormitory) => [
+            'id' => $dormitory->id,
+            'name' => $dormitory->name,
+            'badge_url' => $dormitory->badge_image_path
+                ? \Illuminate\Support\Facades\Storage::disk('public')->url($dormitory->badge_image_path)
+                : '',
+        ])->values(),
+    ]);
 @endphp
 
 @section('content')
@@ -50,7 +60,7 @@
         @endif
 
         @if($errors->any())
-            <div id="booking-errors" class="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert" data-step="{{ $errors->hasAny(['facility_id', 'visit_date', 'time_slot']) ? 1 : 2 }}">
+            <div id="booking-errors" class="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert" data-step="{{ $errors->hasAny(['facility_id', 'dormitory_id', 'visit_date', 'time_slot']) ? 1 : 2 }}">
                 <p class="font-semibold">Please review the highlighted booking details.</p>
                 <ul class="mt-2 list-inside list-disc">
                     @foreach($errors->all() as $error)
@@ -68,7 +78,7 @@
                     <li data-step-indicator="3" class="border-b-2 border-transparent px-3 py-4 text-center text-xs font-medium text-slate-500 sm:px-5 sm:text-sm"><span class="block text-[10px] font-medium sm:inline sm:text-xs">03</span> Review</li>
                 </ol>
 
-                <form action="{{ route('bookings.store') }}" method="POST" id="bookingForm" class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-7">
+                <form action="{{ route('bookings.store') }}" method="POST" enctype="multipart/form-data" id="bookingForm" class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-7">
                     @csrf
 
                     <section data-booking-step="1" class="space-y-6" aria-labelledby="schedule-heading">
@@ -108,6 +118,21 @@
                                         <p id="facility-brand-name" class="font-semibold text-base-content"></p>
                                         <p id="facility-brand-regional" class="mt-1 text-xs text-base-content/70"></p>
                                         <p id="facility-brand-unit" class="text-xs text-base-content/70"></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="sm:col-span-2">
+                                <label for="dormitory_id" class="mb-2 block text-sm font-semibold text-slate-800">Dormitory <span class="text-red-600">*</span></label>
+                                <select id="dormitory_id" name="dormitory_id" required class="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                                    <option value="">Select a facility first</option>
+                                </select>
+                                <p class="mt-1.5 text-xs text-slate-500">Choose the dormitory where the person you wish to visit is assigned.</p>
+                                <div id="dormitory-brand-panel" class="mt-3 hidden items-center gap-3 rounded-lg border border-base-300 bg-base-200 p-3">
+                                    <img id="dormitory-badge-image" class="hidden h-14 w-14 shrink-0 rounded-full border border-base-300 bg-base-100 object-contain p-1" alt="Dormitory badge">
+                                    <div class="min-w-0">
+                                        <p id="dormitory-brand-name" class="text-sm font-semibold text-base-content"></p>
+                                        <p class="text-xs text-base-content/70">Assigned dormitory</p>
                                     </div>
                                 </div>
                             </div>
@@ -199,6 +224,14 @@
                                 <label for="visitor_id_number" class="mb-2 block text-sm font-semibold text-slate-800">ID number <span class="text-red-600">*</span></label>
                                 <input type="text" id="visitor_id_number" name="visitor_id_number" value="{{ old('visitor_id_number') }}" required placeholder="XXXXX-XXXXX" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
                             </div>
+                            <div>
+                                <label for="visitor_id_photo" class="mb-2 block text-sm font-semibold text-slate-800">ID photo <span class="text-red-600">*</span></label>
+                                <input type="file" id="visitor_id_photo" name="visitor_id_photo" accept="image/jpeg,image/png,image/webp" required class="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                                <p class="mt-1.5 text-xs text-slate-500">JPG, PNG, or WEBP. Maximum 2 MB. Camera capture is used where supported; otherwise browse for a saved photo.</p>
+                                @error('visitor_id_photo')
+                                    <p class="mt-1 text-xs text-red-700">{{ $message }}</p>
+                                @enderror
+                            </div>
                             <div class="sm:col-span-2">
                                 <label for="relationship_to_pdl" class="mb-2 block text-sm font-semibold text-slate-800">Relationship to PDL <span class="text-red-600">*</span></label>
                                 <select id="relationship_to_pdl" name="relationship_to_pdl" required class="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
@@ -276,6 +309,7 @@
                         </div>
                         <dl class="divide-y divide-slate-200 rounded-lg border border-slate-200 px-4">
                             <div class="flex flex-col gap-1 py-3 sm:flex-row sm:justify-between"><dt class="text-xs text-slate-500">Facility</dt><dd id="review_facility" class="text-sm font-medium text-slate-900"></dd></div>
+                            <div class="flex flex-col gap-1 py-3 sm:flex-row sm:justify-between"><dt class="text-xs text-slate-500">Dormitory</dt><dd id="review_dormitory" class="text-sm font-medium text-slate-900"></dd></div>
                             <div class="flex flex-col gap-1 py-3 sm:flex-row sm:justify-between"><dt class="text-xs text-slate-500">Date &amp; time</dt><dd id="review_schedule" class="text-sm font-medium text-slate-900"></dd></div>
                             <div class="flex flex-col gap-1 py-3 sm:flex-row sm:justify-between"><dt class="text-xs text-slate-500">Person you are visiting</dt><dd id="review_pdl" class="text-sm font-medium text-slate-900"></dd></div>
                             <div class="flex flex-col gap-1 py-3 sm:flex-row sm:justify-between"><dt class="text-xs text-slate-500">Visitor</dt><dd id="review_visitor" class="text-sm font-medium text-slate-900"></dd></div>
@@ -317,8 +351,10 @@
     <script>
         // Visiting schedule (from the server). Keys: 0 = Sunday ... 6 = Saturday.
         const VISITING_SCHEDULE = @json($visitingSchedule);
+        const DORMITORIES_BY_FACILITY = @json($dormitoryOptions);
         const MIN_VISIT_DATE = @json($minVisitDate); // earliest bookable date (tomorrow)
         const PREVIOUS_TIME_SLOT = @json(old('time_slot'));
+        const PREVIOUS_DORMITORY = @json(old('dormitory_id'));
         const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
         const bookingForm = document.getElementById('bookingForm');
@@ -326,6 +362,10 @@
         const bookingIndicators = [...document.querySelectorAll('[data-step-indicator]')];
         const facilitySelect = document.getElementById('facility_id');
         const facilitySearch = document.getElementById('facility_search');
+        const dormitorySelect = document.getElementById('dormitory_id');
+        const dormitoryBrandPanel = document.getElementById('dormitory-brand-panel');
+        const dormitoryBadgeImage = document.getElementById('dormitory-badge-image');
+        const dormitoryBrandName = document.getElementById('dormitory-brand-name');
         const visitDateInput = document.getElementById('visit_date');
         const visitDateError = document.getElementById('visit_date_error');
         const timeSlotSelect = document.getElementById('time_slot');
@@ -339,6 +379,7 @@
         const addAccompanyingVisitorBtn = document.getElementById('add-accompanying-visitor');
         let activeStep = Number(document.getElementById('booking-errors')?.dataset.step || 1);
         let accompanyingVisitorCount = 0;
+        let syncedFacilityId = null;
 
         function showBookingStep(step) {
             activeStep = step;
@@ -406,8 +447,75 @@
             }
         }
 
+        function updateDormitoryBrand() {
+            const selectedDormitory = dormitorySelect.options[dormitorySelect.selectedIndex];
+
+            if (!dormitorySelect.value) {
+                dormitoryBrandPanel.classList.add('hidden');
+                dormitoryBrandPanel.classList.remove('flex');
+                return;
+            }
+
+            dormitoryBrandPanel.classList.remove('hidden');
+            dormitoryBrandPanel.classList.add('flex');
+            dormitoryBrandName.textContent = selectedLabel(dormitorySelect);
+
+            if (selectedDormitory.dataset.badgeUrl) {
+                dormitoryBadgeImage.src = selectedDormitory.dataset.badgeUrl;
+                dormitoryBadgeImage.classList.remove('hidden');
+            } else {
+                dormitoryBadgeImage.removeAttribute('src');
+                dormitoryBadgeImage.classList.add('hidden');
+            }
+        }
+
+        function setDormitoryOptions(preferredDormitory = '') {
+            const dormitories = DORMITORIES_BY_FACILITY[facilitySelect.value] || [];
+            syncedFacilityId = facilitySelect.value;
+            dormitorySelect.innerHTML = '';
+
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = facilitySelect.value ? 'Select a dormitory' : 'Select a facility first';
+            dormitorySelect.appendChild(placeholderOption);
+
+            dormitories.forEach((dormitory) => {
+                const option = document.createElement('option');
+                option.value = dormitory.id;
+                option.textContent = dormitory.name;
+                option.dataset.badgeUrl = dormitory.badge_url || '';
+                dormitorySelect.appendChild(option);
+            });
+
+            const preferred = String(preferredDormitory ?? '');
+            dormitorySelect.value = dormitories.some((dormitory) => String(dormitory.id) === preferred)
+                ? preferred
+                : '';
+
+            updateDormitoryBrand();
+        }
+
+        // Browsers can restore a facility value without firing "change"
+        // (refresh, back navigation, autofill). Rebuild the dependent list
+        // whenever the selected facility no longer matches the rendered one.
+        function syncDormitoryOptions() {
+            if (syncedFacilityId === facilitySelect.value
+                && !(facilitySelect.value && dormitorySelect.options.length <= 1)) {
+                return;
+            }
+
+            setDormitoryOptions(dormitorySelect.value || '');
+        }
+
+        function resetFacilityFilter() {
+            for (const option of facilitySelect.options) {
+                option.style.display = '';
+            }
+        }
+
         function updateBookingReview() {
             document.getElementById('review_facility').textContent = selectedLabel(facilitySelect);
+            document.getElementById('review_dormitory').textContent = selectedLabel(dormitorySelect);
             document.getElementById('review_schedule').textContent = `${visitDateInput.value} · ${selectedLabel(timeSlotSelect)}`;
             document.getElementById('review_pdl').textContent = document.getElementById('pdl_name').value;
             document.getElementById('review_visitor').textContent = document.getElementById('visitor_full_name').value;
@@ -426,7 +534,31 @@
 
         facilitySelect.addEventListener('change', () => {
             updateFacilityBrand();
+            setDormitoryOptions();
             checkAvailability();
+        });
+
+        dormitorySelect.addEventListener('change', () => {
+            updateDormitoryBrand();
+            checkAvailability();
+        });
+
+        facilitySelect.addEventListener('focus', resetFacilityFilter);
+        facilitySelect.addEventListener('mousedown', resetFacilityFilter);
+        facilitySelect.addEventListener('pointerdown', resetFacilityFilter);
+        dormitorySelect.addEventListener('focus', syncDormitoryOptions);
+        dormitorySelect.addEventListener('mousedown', syncDormitoryOptions);
+        dormitorySelect.addEventListener('pointerdown', syncDormitoryOptions);
+
+        window.addEventListener('pageshow', () => {
+            updateFacilityBrand();
+            syncDormitoryOptions();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                syncDormitoryOptions();
+            }
         });
 
         /* ------------------------------------------------------------------
@@ -502,7 +634,7 @@
         }
 
         async function checkAvailability() {
-            if (!facilitySelect.value || !visitDateInput.value || !timeSlotSelect.value) {
+            if (!facilitySelect.value || !dormitorySelect.value || !visitDateInput.value || !timeSlotSelect.value) {
                 availabilityPanel.classList.add('hidden');
                 return;
             }
@@ -516,6 +648,7 @@
                     },
                     body: JSON.stringify({
                         facility_id: facilitySelect.value,
+                        dormitory_id: dormitorySelect.value,
                         visit_date: visitDateInput.value,
                         time_slot: timeSlotSelect.value,
                     }),
@@ -531,9 +664,15 @@
                     ? 'rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3'
                     : 'rounded-lg border border-red-200 bg-red-50 px-4 py-3';
                 availabilityMessage.className = availability.available ? 'text-sm text-emerald-800' : 'text-sm text-red-800';
+
+                const online = availability.current_online_bookings ?? 0;
+                const combined = availability.current_combined_bookings ?? 0;
+                const maxOnline = availability.max_online_bookings_per_hour ?? 0;
+                const maxCombined = availability.max_bookings_per_hour ?? 0;
+
                 availabilityMessage.textContent = availability.available
-                    ? `This slot is available. ${availability.current_bookings ?? 0} of ${availability.max_visitors_per_hour ?? 0} visitors booked.`
-                    : `This slot is fully booked. ${availability.current_bookings ?? 0} of ${availability.max_visitors_per_hour ?? 0} visitors booked.`;
+                    ? `This slot is available. ${online} of ${maxOnline} online slots used, ${combined} of ${maxCombined} total.`
+                    : `This slot is no longer available for online booking. ${online} of ${maxOnline} online slots and ${combined} of ${maxCombined} total slots are used.`;
             } catch {
                 availabilityPanel.classList.add('hidden');
             }
@@ -605,6 +744,10 @@
                         <input type="text" name="accompanying_visitors[${index}][id_number]" required placeholder="XXXXX-XXXXX" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
                     </div>
                     <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-xs font-semibold text-slate-700">ID photo <span class="text-red-600">*</span></label>
+                        <input type="file" name="accompanying_visitors[${index}][id_photo]" accept="image/jpeg,image/png,image/webp" required class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    </div>
+                    <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-xs font-semibold text-slate-700">Relationship to PDL <span class="text-red-600">*</span></label>
                         <select name="accompanying_visitors[${index}][relationship_to_pdl]" required class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#003366] focus:outline-none focus:ring-2 focus:ring-blue-100">
                             <option value="">Select relationship</option>
@@ -639,8 +782,33 @@
             }
         });
 
+        // Fetch the token bound to the current session before submitting. A page
+        // left open past the session lifetime would otherwise fail with 419.
+        async function refreshCsrfToken() {
+            try {
+                const response = await fetch('{{ route('csrf-token') }}', {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    return;
+                }
+
+                const payload = await response.json();
+
+                if (payload.token) {
+                    bookingForm.querySelector('input[name="_token"]').value = payload.token;
+                }
+            } catch {
+                // Fall back to the token already rendered in the form.
+            }
+        }
+
+        let isSubmitting = false;
+
         // Final safety net: never submit an invalid date/slot combination.
-        bookingForm.addEventListener('submit', (event) => {
+        bookingForm.addEventListener('submit', async (event) => {
             const chosenDate = visitDateInput.value;
             const slots = chosenDate ? (VISITING_SCHEDULE[dayOfWeek(chosenDate)] || []) : [];
 
@@ -649,7 +817,18 @@
                 applyDateRules();
                 showBookingStep(1);
                 (visitDateInput.value ? timeSlotSelect : visitDateInput).reportValidity();
+                return;
             }
+
+            event.preventDefault();
+
+            if (isSubmitting) {
+                return;
+            }
+
+            isSubmitting = true;
+            await refreshCsrfToken();
+            bookingForm.submit();
         });
 
         // Initial state (also restores old input after a failed server validation).
@@ -657,6 +836,7 @@
             updateFacilityBrand();
         }
 
+        setDormitoryOptions(PREVIOUS_DORMITORY || '');
         applyDateRules(PREVIOUS_TIME_SLOT || '');
         showBookingStep(activeStep);
         checkAvailability();

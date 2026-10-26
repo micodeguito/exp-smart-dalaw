@@ -26,6 +26,7 @@
 
             <dl class="grid gap-x-8 sm:grid-cols-2">
                 <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Facility</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->facility->name }}</dd></div>
+                <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Dormitory</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->dormitory?->name ?? 'Not assigned' }}</dd></div>
                 <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Person you are visiting</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->pdl_name }}</dd></div>
                 <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Visitor</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->visitor_full_name }}</dd></div>
                 <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Visit date</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->visit_date->format('M d, Y') }}</dd></div>
@@ -46,6 +47,8 @@
                     </dd>
                 </div>
             @endif
+
+            @include('bookings.partials.id-photos', ['booking' => $booking])
         </article>
 
         @include('bookings.partials.status-history', ['booking' => $booking])

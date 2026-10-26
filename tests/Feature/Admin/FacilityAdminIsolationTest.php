@@ -13,10 +13,18 @@ beforeEach(function () {
 
 function createIsolatedFacility(string $name): Facility
 {
-    return Facility::create([
+    $facility = Facility::create([
         'name' => $name,
         'max_visitors_per_hour' => 20,
     ]);
+
+    $facility->dormitories()->create([
+        'name' => 'Male Dormitory',
+        'max_online_bookings_per_hour' => 7,
+        'max_bookings_per_hour' => 15,
+    ]);
+
+    return $facility;
 }
 
 function createIsolatedBooking(Facility $facility, string $referenceCode): Booking
@@ -24,6 +32,7 @@ function createIsolatedBooking(Facility $facility, string $referenceCode): Booki
     return Booking::create([
         'reference_code' => $referenceCode,
         'facility_id' => $facility->id,
+        'dormitory_id' => $facility->dormitories()->firstOrFail()->id,
         'pdl_name' => 'Juan Dela Cruz',
         'visitor_full_name' => 'Sample Visitor',
         'visitor_sex' => 'Male',
@@ -100,8 +109,9 @@ test('facility admins cannot access another facility booking or global admin acc
     ])->assertNotFound();
 
     $this->get(route('admin.users.index'))->assertForbidden();
-    $this->put(route('admin.facilities.capacity.update', $otherFacility), [
-        'max_visitors_per_hour' => 2,
+    $this->put(route('admin.facilities.dormitories.update', [$otherFacility, $otherFacility->dormitories()->firstOrFail()]), [
+        'max_online_bookings_per_hour' => 2,
+        'max_bookings_per_hour' => 2,
     ])->assertNotFound();
 
     $this->patch(route('admin.facilities.branding.update', $otherFacility), [

@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\Route;
 // Public Portal Routes
 Route::get('/', [BookingController::class, 'index'])->name('home');
 Route::get('/book', [BookingController::class, 'create'])->name('bookings.create');
+Route::get('/csrf-token', [BookingController::class, 'csrfToken'])->name('csrf-token');
 Route::post('/bookings', [BookingController::class, 'store'])->name('bookings.store');
 Route::get('/booking/success/{code}', [BookingController::class, 'success'])->name('booking.success');
+Route::get('/booking/{code}/id-photo/{visitor}', [BookingController::class, 'viewIdPhoto'])->name('booking.id-photo');
 Route::get('/track', [BookingController::class, 'track'])->name('bookings.track');
 Route::post('/track', [BookingController::class, 'trackSearch'])->name('bookings.track.search');
 
@@ -37,11 +39,13 @@ Route::middleware(['admin'])->prefix('admin')->group(function () {
     Route::post('/bookings/{booking}/status', [DashboardController::class, 'updateStatus'])->name('admin.bookings.status.update');
     Route::get('/bookings/create', [AdminBookingController::class, 'create'])->name('admin.bookings.create');
     Route::post('/bookings', [AdminBookingController::class, 'store'])->name('admin.bookings.store');
+    Route::get('/bookings/{booking}', [AdminBookingController::class, 'show'])->name('admin.bookings.show');
     Route::get('/bookings/{booking}/edit', [AdminBookingController::class, 'edit'])->name('admin.bookings.edit');
     Route::put('/bookings/{booking}', [AdminBookingController::class, 'update'])->name('admin.bookings.update');
+    Route::get('/bookings/{booking}/id-photo/{visitor}', [AdminBookingController::class, 'viewIdPhoto'])->name('admin.bookings.id-photo');
     Route::get('/calendar', [CalendarController::class, 'index'])->name('admin.calendar');
     Route::get('/facilities/settings', [FacilitySettingsController::class, 'index'])->name('admin.facilities.settings');
-    Route::put('/facilities/{facility}/capacity', [FacilitySettingsController::class, 'updateCapacity'])->name('admin.facilities.capacity.update');
+    Route::put('/facilities/{facility}/dormitories/{dormitory}', [FacilitySettingsController::class, 'updateDormitory'])->name('admin.facilities.dormitories.update');
     Route::patch('/facilities/{facility}/branding', [FacilitySettingsController::class, 'updateBranding'])->name('admin.facilities.branding.update');
 
     Route::middleware('super-admin')->group(function () {

@@ -3,6 +3,15 @@
 @section('title', 'Add Walk-in Visitor | SmartDalaw')
 
 @section('content')
+    @php
+        $dormitoryOptions = $facilities->mapWithKeys(fn ($facility) => [
+            $facility->id => $facility->dormitories->map(fn ($dormitory) => [
+                'id' => $dormitory->id,
+                'name' => $dormitory->name,
+            ])->values(),
+        ]);
+    @endphp
+
     <div class="max-w-3xl">
         <a href="{{ route('admin.dashboard') }}" class="text-sm font-medium text-[#0A2472] hover:underline">&larr; Booking requests</a>
         <div class="mt-3">
@@ -31,6 +40,13 @@
                     @foreach($facilities as $facility)
                         <option value="{{ $facility->id }}" @selected(old('facility_id') == $facility->id)>{{ $facility->name }}</option>
                     @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label for="dormitory_id" class="mb-2 block text-sm font-semibold text-slate-800">Dormitory</label>
+                <select id="dormitory_id" name="dormitory_id" required class="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-[#0A2472] focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    <option value="">Select a facility first</option>
                 </select>
             </div>
 
@@ -146,6 +162,37 @@
     </div>
 
     <script>
+        const DORMITORIES_BY_FACILITY = @json($dormitoryOptions);
+        const PREVIOUS_DORMITORY = @json(old('dormitory_id'));
+
+        const facilitySelect = document.getElementById('facility_id');
+        const dormitorySelect = document.getElementById('dormitory_id');
+
+        function setDormitoryOptions(preferred = '') {
+            const dormitories = DORMITORIES_BY_FACILITY[facilitySelect.value] || [];
+            dormitorySelect.innerHTML = '';
+
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = facilitySelect.value ? 'Select a dormitory' : 'Select a facility first';
+            dormitorySelect.appendChild(placeholderOption);
+
+            dormitories.forEach((dormitory) => {
+                const option = document.createElement('option');
+                option.value = dormitory.id;
+                option.textContent = dormitory.name;
+                dormitorySelect.appendChild(option);
+            });
+
+            const preferredValue = String(preferred ?? '');
+            dormitorySelect.value = dormitories.some((dormitory) => String(dormitory.id) === preferredValue)
+                ? preferredValue
+                : '';
+        }
+
+        facilitySelect.addEventListener('change', () => setDormitoryOptions());
+        setDormitoryOptions(PREVIOUS_DORMITORY || '');
+
         const accompanyingVisitorsContainer = document.getElementById('accompanying-visitors-container');
         const addAccompanyingVisitorBtn = document.getElementById('add-accompanying-visitor');
         let accompanyingVisitorCount = 0;

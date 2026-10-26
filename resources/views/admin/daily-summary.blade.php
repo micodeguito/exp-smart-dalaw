@@ -46,7 +46,7 @@
             <h2 class="text-lg font-bold text-[#102044]">Age Distribution</h2>
             <div class="mt-4 grid gap-3 sm:grid-cols-3">
                 <article class="rounded-md border border-emerald-200 bg-white p-4">
-                    <p class="text-xs font-medium text-emerald-800">Children (Below 18)</p>
+                    <p class="text-xs font-medium text-emerald-800">Children (Under 18)</p>
                     <p class="mt-2 text-2xl font-bold text-emerald-900">{{ $summary['by_age']['child'] }}</p>
                     <p class="mt-1 text-xs text-slate-500">{{ number_format(($summary['by_age']['child'] / max($summary['total_visitors'], 1)) * 100, 1) }}% of total</p>
                 </article>

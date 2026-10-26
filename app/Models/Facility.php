@@ -21,6 +21,11 @@ class Facility extends Model
         return $this->hasMany(Pdl::class);
     }
 
+    public function dormitories(): HasMany
+    {
+        return $this->hasMany(Dormitory::class);
+    }
+
     public function bookings(): HasMany
     {
         return $this->hasMany(Booking::class);

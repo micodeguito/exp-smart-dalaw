@@ -23,7 +23,8 @@ class CalendarController extends Controller
 
         $visits = Booking::visibleToUser($request->user())
             ->with(['facility'])
-            ->whereBetween('visit_date', [$calendarStart->toDateString(), $calendarEnd->toDateString()])
+            ->whereDate('visit_date', '>=', $calendarStart->toDateString())
+            ->whereDate('visit_date', '<=', $calendarEnd->toDateString())
             ->orderBy('visit_date')
             ->orderBy('time_slot')
             ->get();

@@ -9,9 +9,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Booking extends Model
 {
+    public const CHANNEL_ONLINE = 'online';
+
+    public const CHANNEL_WALK_IN = 'walk_in';
+
     protected $fillable = [
         'reference_code',
         'facility_id',
+        'dormitory_id',
+        'booking_channel',
         'pdl_name',
         'visitor_full_name',
         'visitor_sex',
@@ -20,6 +26,7 @@ class Booking extends Model
         'visitor_contact',
         'visitor_id_type',
         'visitor_id_number',
+        'visitor_id_photo_path',
         'relationship_to_pdl',
         'visit_date',
         'time_slot',
@@ -46,6 +53,11 @@ class Booking extends Model
         return $this->belongsTo(Facility::class);
     }
 
+    public function dormitory(): BelongsTo
+    {
+        return $this->belongsTo(Dormitory::class);
+    }
+
     public function accompanyingVisitors(): HasMany
     {
         return $this->hasMany(AccompanyingVisitor::class);
@@ -54,6 +66,21 @@ class Booking extends Model
     public function getPdlFullNameAttribute(): string
     {
         return $this->pdl_name ?? 'N/A';
+    }
+
+    /**
+     * Resolve a photo for "primary" or an accompanying visitor id that
+     * belongs to this booking. Unknown visitors resolve to null.
+     */
+    public function idPhotoPathFor(string $visitor): ?string
+    {
+        if ($visitor === 'primary') {
+            return $this->visitor_id_photo_path;
+        }
+
+        return $this->accompanyingVisitors()
+            ->whereKey($visitor)
+            ->value('id_photo_path');
     }
 
     public function statusHistory(): HasMany

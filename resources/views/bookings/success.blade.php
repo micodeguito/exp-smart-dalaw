@@ -36,6 +36,17 @@
                         @endif
                     </div>
                 </div>
+                @if($booking->dormitory)
+                    <div class="flex items-center gap-3 border-b border-slate-100 py-4">
+                        @if($booking->dormitory->badge_image_path)
+                            <img src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($booking->dormitory->badge_image_path) }}" alt="Badge for {{ $booking->dormitory->name }}" class="h-14 w-14 shrink-0 rounded-full border border-base-300 bg-base-100 object-contain p-1">
+                        @endif
+                        <div class="min-w-0">
+                            <p class="text-xs text-slate-500">Dormitory</p>
+                            <p class="font-semibold text-slate-900">{{ $booking->dormitory->name }}</p>
+                        </div>
+                    </div>
+                @endif
                 <dl class="grid gap-x-8 sm:grid-cols-2">
                     <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Person you are visiting</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->pdl_name }}</dd></div>
                     <div class="border-b border-slate-100 py-4"><dt class="text-xs text-slate-500">Visitor</dt><dd class="mt-1 text-sm font-medium text-slate-900">{{ $booking->visitor_full_name }}</dd></div>
@@ -55,6 +66,8 @@
                         </dd>
                     </div>
                 @endif
+
+                @include('bookings.partials.id-photos', ['booking' => $booking])
             </article>
 
             <aside class="rounded-lg border border-slate-200 bg-white p-5 text-center sm:p-7">

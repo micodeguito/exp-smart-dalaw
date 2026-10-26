@@ -3,22 +3,32 @@
 use App\Models\Booking;
 use App\Models\Facility;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->withoutVite();
+    Storage::fake('private');
 });
 
-test('hourly capacity is checked per selected slot and prevents overbooking', function () {
+test('hourly dormitory capacity is checked per selected slot and prevents overbooking', function () {
     $facility = Facility::create([
         'name' => 'Hourly Capacity Jail',
         'max_visitors_per_hour' => 1,
+    ]);
+    $dormitory = $facility->dormitories()->create([
+        'name' => 'Male Dormitory',
+        'max_online_bookings_per_hour' => 1,
+        'max_bookings_per_hour' => 15,
     ]);
 
     Booking::create([
         'reference_code' => 'BJMP-CAPACITY',
         'facility_id' => $facility->id,
+        'dormitory_id' => $dormitory->id,
+        'booking_channel' => Booking::CHANNEL_ONLINE,
         'pdl_name' => 'Juan Dela Cruz',
         'visitor_full_name' => 'First Visitor',
         'visitor_sex' => 'Male',
@@ -34,14 +44,17 @@ test('hourly capacity is checked per selected slot and prevents overbooking', fu
 
     $this->postJson(route('api.check-availability'), [
         'facility_id' => $facility->id,
+        'dormitory_id' => $dormitory->id,
         'visit_date' => today()->addDays(3)->toDateString(),
         'time_slot' => '8:00 AM - 9:00 AM',
     ])->assertOk()
         ->assertJsonPath('available', false)
-        ->assertJsonPath('max_visitors_per_hour', 1);
+        ->assertJsonPath('max_online_bookings_per_hour', 1)
+        ->assertJsonPath('max_bookings_per_hour', 15);
 
     $this->postJson(route('api.check-availability'), [
         'facility_id' => $facility->id,
+        'dormitory_id' => $dormitory->id,
         'visit_date' => today()->addDays(3)->toDateString(),
         'time_slot' => '9:00 AM - 10:00 AM',
     ])->assertOk()
@@ -49,6 +62,7 @@ test('hourly capacity is checked per selected slot and prevents overbooking', fu
 
     $this->post(route('bookings.store'), [
         'facility_id' => $facility->id,
+        'dormitory_id' => $dormitory->id,
         'pdl_name' => 'Juan Dela Cruz',
         'visitor_full_name' => 'Second Visitor',
         'visitor_sex' => 'Female',
@@ -56,6 +70,7 @@ test('hourly capacity is checked per selected slot and prevents overbooking', fu
         'visitor_contact' => '09987654321',
         'visitor_id_type' => 'Passport',
         'visitor_id_number' => 'P7654321',
+        'visitor_id_photo' => UploadedFile::fake()->image('id.jpg'),
         'relationship_to_pdl' => 'Sibling',
         'visit_date' => today()->addDays(3)->toDateString(),
         'time_slot' => '9:00 AM - 10:00 AM',
@@ -73,6 +88,7 @@ test('hourly capacity is checked per selected slot and prevents overbooking', fu
 
     $this->post(route('bookings.store'), [
         'facility_id' => $facility->id,
+        'dormitory_id' => $dormitory->id,
         'pdl_name' => 'Juan Dela Cruz',
         'visitor_full_name' => 'Third Visitor',
         'visitor_sex' => 'Male',
@@ -80,6 +96,7 @@ test('hourly capacity is checked per selected slot and prevents overbooking', fu
         'visitor_contact' => '09876543210',
         'visitor_id_type' => 'Passport',
         'visitor_id_number' => 'P9999999',
+        'visitor_id_photo' => UploadedFile::fake()->image('id.jpg'),
         'relationship_to_pdl' => 'Sibling',
         'visit_date' => today()->addDays(3)->toDateString(),
         'time_slot' => '8:00 AM - 9:00 AM',
